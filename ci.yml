@@ -1,0 +1,14 @@
+name: Pipeline CI Skill Hub
+
+# 1. LE DÉCLENCHEUR
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+# 2. LES TÂCHES (On va les ajouter une par une)
+jobs:
+  # On va mettre nos jobs ici juste après !
