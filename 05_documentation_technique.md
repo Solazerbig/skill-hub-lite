@@ -4,6 +4,8 @@ Exécution et commentaires des étapes du pipelineLe pipeline GitHub Actions s'e
 Tests & Linting : Installation des dépendances, vérification du formatage du code et exécution des tests unitaires et d'intégration. 
 Le pipeline s'interrompt si une erreur est détectée.Sécurité (SAST & SCA) : Lancement de gitleaks pour détecter la présence de secrets dans le code, et de trivy (filesystem) pour scanner les vulnérabilités de l'infrastructure as code et des dépendances. 
 
+Le pipeline affiche actuellement un statut global en échec (croix rouge) lors des commits. C'est le comportement attendu : toute la partie Intégration Continue (Build, Scan Trivy, Push, Signature) s'exécute avec succès, mais la dernière étape de Déploiement Continu échoue systématiquement car les variables d'environnement du serveur (VPS_HOST) ne sont pas fournies pour cet environnement d'examen. Cet échec légitime est d'ailleurs ce qui déclenche notre script de Rollback
+
 Build & Push : Construction de l'image Docker et publication sur le registre GHCR (GitHub Container Registry) uniquement si les tests et les scans de sécurité sont validés. 
 
 Déploiement : Connexion SSH au VPS (environnement de production) pour déclencher la mise à jour via docker compose pull et docker compose up -d. 
