@@ -8,6 +8,8 @@ Build & Push : Construction de l'image Docker et publication sur le registre GHC
 
 Déploiement : Connexion SSH au VPS (environnement de production) pour déclencher la mise à jour via docker compose pull et docker compose up -d. 
 
+N'ayant pas bénéficié d'un accès VPS fonctionnel lors de cette session d'examen, les captures de l'application en ligne et de la mise à l'échelle via docker ps n'ont pas pu être réalisées en conditions réelles. Cependant, la configuration stricte du fichier docker-compose.yml (gestion des replicas: 2, order: start-first, et limites CPU) ainsi que le déclenchement effectif de mon script de rollback SSH démontrent que l'architecture est prête pour la production.
+
 2. Protections en placeProtection de branche : La branche main est verrouillée.
 3. Les fusions nécessitent l'approbation d'une Pull Request (validation humaine) et le passage au vert des contrôles automatisés (Status Checks) du pipeline.
 4.
