@@ -22,13 +22,32 @@ jobs:
           echo "Linting validé."
           echo "Tests unitaires terminés avec succès."
 
-  security-scan:
+  security-and-compliance:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         
-      - name: Scan de sécurité (SAST/SCA)
+      - name: Scan des secrets (Gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Scan de conformité IaC (Trivy Config)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          hide-progress: false
+          format: 'table'
+          exit-code: '1' # Fait échouer le pipeline si vulnérabilité trouvée
+          severity: 'CRITICAL,HIGH'
+          
+      - name: Contrôle de conformité sur mesure (Règle C14.1)
         run: |
-          echo "Recherche de secrets (Gitleaks)... Aucun secret trouvé."
-          echo "Scan de vulnérabilités... OK."
+          echo "Vérification de la présence des limites de ressources (CPU) dans docker-compose.yml..."
+          if ! grep -q "cpus:" docker-compose.yml; then
+            echo "ERREUR DE CONFORMITÉ : La limite de CPU (cpus:) n'est pas définie !"
+            echo "Le déploiement est bloqué pour protéger les ressources du VPS."
+            exit 1
+          fi
+          echo "Conformité validée : Limites de ressources présentes."
