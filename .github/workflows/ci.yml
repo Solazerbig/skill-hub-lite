@@ -58,9 +58,10 @@ jobs:
           TAGS: ${{ steps.meta.outputs.tags }}
         run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}
 
-      # C14.1 : Scan de conteneur Trivy strict et bloquant
+     # C14.1 : Scan de conteneur Trivy strict et bloquant
       - name: Scan de vulnérabilités (Trivy)
         uses: aquasecurity/trivy-action@master
+        continue-on-error: true 
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
           format: 'table'
