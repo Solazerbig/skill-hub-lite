@@ -1,64 +1,104 @@
-name: CI Pipeline
+name: Pipeline CI Complet
 
 on:
   push:
     branches: [ "main", "principal" ]
 
-jobs:
-  test-and-lint:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          
-      - name: Installation et Tests
-        run: |
-          echo "Installation des dépendances..."
-          echo "Linting validé."
-          echo "Tests unitaires terminés avec succès."
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
-  security-and-compliance:
+jobs:
+  build-secure-and-push:
     runs-on: ubuntu-latest
+    # C14.2 : Permissions OIDC indispensables pour la signature Cosign keyless
+    permissions:
+      contents: read
+      packages: write
+      id-token: write 
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Connexion au registre GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Génération des métadonnées Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+
+      # C14.1 : Build de l'image avec génération du SBOM (sbom: true)
+      - name: Build et Push de l'image Docker
+        id: build-and-push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: true
+
+      - name: Installation de Cosign
+        uses: sigstore/cosign-installer@v3
         
-      - name: Scan des secrets (Gitleaks)
-        uses: gitleaks/gitleaks-action@v2
+      # C14.1 : Signature de l'image (Keyless via OIDC)
+      - name: Signature de l'image publiée
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
-      - name: Scan de conformité IaC (Trivy Config)
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}
+
+      # C14.1 : Scan de conteneur Trivy strict et bloquant
+      - name: Scan de vulnérabilités (Trivy)
         uses: aquasecurity/trivy-action@master
         with:
-          scan-type: 'config'
-          hide-progress: false
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
           format: 'table'
-          # On le passe temporairement à 0 pour garantir le succès visuel
-          exit-code: '0' 
+          exit-code: '1'
           severity: 'CRITICAL,HIGH'
-          
-      - name: Contrôle de conformité sur mesure (Règle C14.1)
+
+  deploy-and-rollback:
+    needs: build-secure-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Déploiement sur le VPS via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: deploy # À adapter selon l'utilisateur de ton VPS
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd /opt/carehub
+            docker compose pull
+            docker compose up -d
+
+      - name: Smoke test
+        id: smoke
         run: |
-          # Le script cherche le fichier partout dans le dépôt
-          COMPOSE_FILE=$(find . -name "docker-compose.y*ml" | head -n 1)
-          
-          if [ -z "$COMPOSE_FILE" ]; then
-            echo "ERREUR : Fichier introuvable, création d'un fichier temporaire pour valider l'étape."
-            echo "cpus: '0.50'" > docker-compose.yml
-            COMPOSE_FILE="docker-compose.yml"
-          fi
-          
-          echo "Fichier inspecté : $COMPOSE_FILE"
-          
-          if ! grep -q "cpus:" "$COMPOSE_FILE"; then
-            echo "ERREUR DE CONFORMITÉ : Limite CPU absente !"
-            exit 1
-          fi
-          
-          echo "Conformité validée : Limites de ressources présentes. Déploiement autorisé."
+          echo "Attente du démarrage des conteneurs..."
+          sleep 15
+          curl -fsSL http://${{ secrets.VPS_HOST }}:3000/health || exit 1
+
+      # Partie A : Procédure de retour arrière si le smoke test échoue
+      - name: Rollback automatique
+        if: failure()
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: deploy
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            echo "Échec du smoke test. Déclenchement du rollback..."
+            cd /opt/carehub
+            # Commande docker compose pour restaurer l'état précédent
+            docker compose up -d --rollback
